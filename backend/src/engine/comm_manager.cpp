@@ -437,6 +437,8 @@ void CommManager::startClient(int client_id) {
     // std::cerr << "My Pull Socket is bound at " << addr_ntos(my_public_ip) << ":" << my_listen_port << std::endl;    uint16_t pull_socket_port_to_use; // This port will be used for bind and advertise
 
     // ---- MODIFICATION START ----
+    uint16_t pull_socket_port_to_use; // This port will be used for bind and advertise
+
     const char* configured_pull_port_str = std::getenv("FASTERDP_PULL_PORT");
 
     if (configured_pull_port_str) {

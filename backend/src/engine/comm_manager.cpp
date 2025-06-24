@@ -423,18 +423,48 @@ void CommManager::startClient(int client_id) {
     assert(sock_val == 0);
 
 
-    uint16_t my_listen_port;
+    // uint16_t my_listen_port;
 
-    while (true) {
-        my_listen_port = chooseListenPort();
+    // while (true) {
+    //     my_listen_port = chooseListenPort();
+    //     try {
+    //         sock_pull_.bind(std::string("tcp://*:" + std::to_string(my_listen_port)));
+    //     } catch (const std::runtime_error& e) {
+    //         continue;
+    //     }
+    //     break;
+    // }
+    // std::cerr << "My Pull Socket is bound at " << addr_ntos(my_public_ip) << ":" << my_listen_port << std::endl;    uint16_t pull_socket_port_to_use; // This port will be used for bind and advertise
+
+    // ---- MODIFICATION START ----
+    const char* configured_pull_port_str = std::getenv("FASTERDP_PULL_PORT");
+
+    if (configured_pull_port_str) {
         try {
-            sock_pull_.bind(std::string("tcp://*:" + std::to_string(my_listen_port)));
-        } catch (const std::runtime_error& e) {
-            continue;
+            pull_socket_port_to_use = static_cast<uint16_t>(std::stoi(configured_pull_port_str));
+            std::cerr << "Using configured pull port from FASTERDP_PULL_PORT: " << pull_socket_port_to_use << std::endl;
+            sock_pull_.bind(std::string("tcp://*:" + std::to_string(pull_socket_port_to_use)));
+        } catch (const std::exception& e) { // Catch stoi errors or zmq bind errors
+            std::cerr << "Error configuring or binding pull port from FASTERDP_PULL_PORT (" << configured_pull_port_str
+                      << "): " << e.what() << ". Falling back to random port selection." << std::endl;
+            goto random_port_fallback_direct; // Fallback
         }
-        break;
+    } else {
+        std::cerr << "FASTERDP_PULL_PORT not set. Falling back to random port selection." << std::endl;
+    random_port_fallback_direct: // Label for fallback
+        while (true) {
+            pull_socket_port_to_use = chooseListenPort(); // Original random port logic
+            try {
+                sock_pull_.bind(std::string("tcp://*:" + std::to_string(pull_socket_port_to_use)));
+            } catch (const std::runtime_error& e) {
+                continue; // Port in use, try another random one
+            }
+            break; // Successfully bound
+        }
     }
-    std::cerr << "My Pull Socket is bound at " << addr_ntos(my_public_ip) << ":" << my_listen_port << std::endl;
+    // ---- MODIFICATION END ----
+
+    std::cerr << "My Pull Socket is bound at " << addr_ntos(my_public_ip) << ":" << pull_socket_port_to_use << std::endl;
 
 
     // try connecting server and block
@@ -446,7 +476,8 @@ void CommManager::startClient(int client_id) {
     MsgInitReq req;
     req.client_id = client_id;
     req.public_ip = my_public_ip;
-    req.listen_port = my_listen_port;
+    // req.listen_port = my_listen_port;
+    req.listen_port = pull_socket_port_to_use; // Use the port we bound to
     req.timestamp = get_timestamp();
     strncpy(req.host_alias, my_hostname.c_str(), sizeof(req.host_alias));
 

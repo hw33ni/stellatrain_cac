@@ -2,13 +2,13 @@
 #    (Replace with your actual GitHub username and repository name)
 GITHUB_USER="hw33ni"
 REPO_NAME="stellatrain_cac"
-IMAGE_TAG="main" # Or "latest", "v1.1", etc.
+IMAGE_TAG="pytorch2502" # Or "latest", "v1.1", etc.
 FULL_IMAGE_NAME="ghcr.io/${GITHUB_USER}/${REPO_NAME}:${IMAGE_TAG}"
 
 # ghcr.io/hw33ni/stellatrain_cac:main
 # 2. Build the Docker Image
 #    (-t tags the image, . uses current directory as build context)
-docker build -t "${FULL_IMAGE_NAME}" .
+docker build --no-cache -t "${FULL_IMAGE_NAME}" .
 
 # 3. Log in to GitHub Container Registry (if not already logged in or session expired)
 #    (You'll be prompted for your PAT as the password)

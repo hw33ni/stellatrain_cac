@@ -4,6 +4,7 @@
 #include "../compress/thresholdv16.h"
 #include "../compress/topk.h"
 #include "../optim/sparse_optimizer.h"
+#include <fstream>
 #include <iostream>
 #include <csignal>
 #include <pthread.h>

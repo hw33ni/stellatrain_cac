@@ -1,0 +1,35 @@
+
+## stellatrain
+# node 0
+
+/home/stellatrain/explore-dp/test_script_cac.sh \
+    --master-ip-address "$ENV_MASTER_IP" \
+    --my-ip-address "$ENV_MASTER_IP" \
+    --world-size 2 \
+    --num-gpus 2 \
+    --rank 0 \
+    --master-port "$ENV_MASTER_BROKER_PORT" \
+    --fasterdp-pull-port "$ENV_MASTER_PULL_PORT"
+
+/home/stellatrain/explore-dp/launch_ddp_internal.sh 0 2 2
+
+# node 1
+
+/home/stellatrain/explore-dp/test_script_cac.sh \
+    --master-ip-address "$ENV_MASTER_IP" \
+    --my-ip-address "$ENV_WORKER_IP" \
+    --world-size 2 \
+    --num-gpus 2 \
+    --rank 1 \
+    --master-port "$ENV_MASTER_BROKER_PORT" \
+    --fasterdp-pull-port "$ENV_WORKER_PULL_PORT"
+
+
+/home/stellatrain/explore-dp/launch_ddp_internal.sh 1 2 2
+#!/bin/bash
+
+
+# ddp
+./test_ddp_comparison.sh 0 79.117.27.229 2 2
+./test_ddp_comparison.sh 1 79.117.27.229 2 2
+

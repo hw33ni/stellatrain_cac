@@ -1,0 +1,9 @@
+#!/bin/bash
+# IP and Port values
+
+export ENV_MASTER_IP="79.117.27.229"
+export ENV_WORKER_IP="82.79.250.18"
+
+export ENV_MASTER_BROKER_PORT="22042"
+export ENV_MASTER_PULL_PORT="22277"
+export ENV_WORKER_PULL_PORT="56041"

@@ -38,30 +38,13 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends curl ca-cer
  && curl -L https://github.com/pybind/pybind11/archive/refs/tags/v2.13.6.tar.gz \
       | tar xz --strip-components=1 -C /home/stellatrain/explore-dp/backend/pybind11
 
-RUN \
-    # Determine Python specific paths
-    PYTHON_EXECUTABLE=$(which python3) && \
-    PYTHON_VERSION_SHORT=$($PYTHON_EXECUTABLE -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && \
-    PIP_TORCH_LOCATION=$($PYTHON_EXECUTABLE -m pip show torch | grep Location | awk '{print $2}') && \
-    TORCH_CMAKE_DIR="${PIP_TORCH_LOCATION}/torch/share/cmake/Torch" && \
-    PYTHON_LIB_PATH=$($PYTHON_EXECUTABLE -c "import site; print(site.getsitepackages()[0])") && \
-    PYTHON_INCLUDE_PATH=$($PYTHON_EXECUTABLE -c "from sysconfig import get_paths; print(get_paths()['include'])") && \
-    echo "--- CMake Build Configuration ---" && \
-    echo "Python Executable: ${PYTHON_EXECUTABLE}" && \
-    echo "Python Version (Short): ${PYTHON_VERSION_SHORT}" && \
-    echo "PyTorch Location (pip): ${PIP_TORCH_LOCATION}" && \
-    echo "Torch CMake Dir: ${TORCH_CMAKE_DIR}" && \
-    echo "Python Lib Path: ${PYTHON_LIB_PATH}" && \
-    echo "Python Include Path: ${PYTHON_INCLUDE_PATH}" && \
-    echo "---------------------------------" && \
-    cmake \
-      -DPYTHON_EXECUTABLE=${PYTHON_EXECUTABLE} \
-      -DCMAKE_PREFIX_PATH="${TORCH_CMAKE_DIR}" \
-      -DPYTHON_LIB_PATH="${PYTHON_LIB_PATH}" \
-      -DPYTHON_INCLUDE_PATH="${PYTHON_INCLUDE_PATH}" \
-      -DPYTHON_VERSION="${PYTHON_VERSION_SHORT}" \
+RUN cmake \
+      -DPYTHON_EXECUTABLE=/usr/bin/python3 \
+      -DCMAKE_PREFIX_PATH=/usr/local/lib/python3.12/dist-packages/torch/share/cmake/Torch \
+      -DPYTHON_LIB_PATH=/usr/local/lib/python3.12 \
+      -DPYTHON_INCLUDE_PATH=/usr/include/python3.12 \
+      -DPYTHON_VERSION=3.12 \
       -B build
-
 
 # RUN \
 #     # Determine Python specific paths

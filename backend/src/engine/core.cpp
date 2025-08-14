@@ -67,6 +67,11 @@ void FasterDpEngine::shutdown() {
         barrier_manager_thread_->join();
     }
 
+    // Clear all tensor maps to release CUDA memory before the context is destroyed.
+    map_cpu_param_tensor_.clear();
+    map_gpu_param_tensor_.clear();
+    map_gpu_grad_tensor_.clear();
+
 #if ENABLE_STAT
     stat_export();
 #endif

@@ -74,7 +74,7 @@ sleep 1
 export TEST_MODEL=resnet152
 # CUDA_VISIBLE_DEVICES is set above
 
-export GLOBAL_MISC_COMMAND="--dataset=imagenet100 --num-epochs=2 --imagenet-root=${DATA_ROOT_INSIDE_CONTAINER}"
+export GLOBAL_MISC_COMMAND="--dataset=imagenet100 --num-epochs=100 --imagenet-root=${DATA_ROOT_INSIDE_CONTAINER}"
 export CMDLINE="python test_end_to_end.py --model=$TEST_MODEL $GLOBAL_MISC_COMMAND"
 
 echo "--- Configuration ---"

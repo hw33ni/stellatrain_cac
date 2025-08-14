@@ -21,14 +21,24 @@
 #include "../optim/sgd.h"
 #include "../optim/adam.h"
 
-FasterDpEngine::FasterDpEngine() : finished_(false), model_staleness_(1), compression_ratio_(0.99), first_backward_(true), gradient_accumulation_(1) {
+FasterDpEngine::FasterDpEngine() : finished_(false), model_staleness_(1), compression_ratio_(0.99), first_backward_(true), gradient_accumulation_(1), shutdown_called_(false) {
     std::cout << "Starting FasterDPEngine" << std::endl;
     configure_compression("thresholdv16");
 }
 
 FasterDpEngine::~FasterDpEngine() {
+    if (!shutdown_called_) {
+        shutdown();
+    }
+}
+
+void FasterDpEngine::shutdown() {
     std::cout << "Terminating FasterDPEngine" << std::endl;
     
+    if (shutdown_called_) {
+        return;
+    }
+
     finished_ = true;
 
     // Wake up all threads by notifying every condition variable they might be waiting on.
@@ -60,6 +70,7 @@ FasterDpEngine::~FasterDpEngine() {
 #if ENABLE_STAT
     stat_export();
 #endif
+    shutdown_called_ = true;
 }
 
 

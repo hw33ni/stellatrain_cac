@@ -185,6 +185,7 @@ public:
     FasterDpEngine(FasterDpEngine const&) = delete;
     void operator=(FasterDpEngine const&) = delete;
     ~FasterDpEngine ();
+    void shutdown();
     
     static FasterDpEngine& getInstance() {
         static FasterDpEngine instance;

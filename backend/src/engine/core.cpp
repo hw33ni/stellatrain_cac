@@ -41,7 +41,7 @@ void FasterDpEngine::shutdown() {
 
     finished_ = true;
 
-    // Wake up all threads by notifying every condition variable they might be waiting on.
+    // 1. Wake up all FasterDpEngine threads so they can check the finished_ flag and exit.
     backward_delegate_cond_.notify_all();
     cpu_shmem_use_map_cond_.notify_all();
     layer_model_completed_version_map_cond_.notify_all();
@@ -50,27 +50,41 @@ void FasterDpEngine::shutdown() {
         pthread_cond_broadcast(&shared_props_->barrier_ipc_cond_);
     }
 
-    // Now, join the threads. They will see 'finished_ = true' and exit their loops.
-    if (backward_delegate_thread_ != nullptr) {
+    // 2. Gracefully shut down the managers, which will stop and join their own internal threads.
+    if (comm_manager_) {
+        comm_manager_->shutdown();
+    }
+    if (shm_manager_) {
+        shm_manager_->shutdown();
+    }
+
+    // 3. Now that the managers' threads are stopped, join the FasterDpEngine threads.
+    if (backward_delegate_thread_ && backward_delegate_thread_->joinable()) {
         backward_delegate_thread_->join();
     }
-    if (cpu_shmem_return_manager_thread_ != nullptr) {
+    if (cpu_shmem_return_manager_thread_ && cpu_shmem_return_manager_thread_->joinable()) {
         cpu_shmem_return_manager_thread_->join();
     }
-    if (model_complete_manager_thread_ != nullptr) {
+    if (model_complete_manager_thread_ && model_complete_manager_thread_->joinable()) {
         model_complete_manager_thread_->join();
     }
-    if (chore_manager_thread_ != nullptr) {
+    if (chore_manager_thread_ && chore_manager_thread_->joinable()) {
         chore_manager_thread_->join();
     }
-    if (barrier_manager_thread_ != nullptr) {
+    if (barrier_manager_thread_ && barrier_manager_thread_->joinable()) {
         barrier_manager_thread_->join();
     }
 
-    // Clear all tensor maps to release CUDA memory before the context is destroyed.
+    // 4. Clear all tensor maps to release CUDA memory.
     map_cpu_param_tensor_.clear();
     map_gpu_param_tensor_.clear();
     map_gpu_grad_tensor_.clear();
+    
+    // 5. Explicitly destroy the manager objects themselves.
+    compressor_.reset();
+    comm_manager_.reset();
+    shm_manager_.reset();
+    thread_pool_.reset();
 
 #if ENABLE_STAT
     stat_export();

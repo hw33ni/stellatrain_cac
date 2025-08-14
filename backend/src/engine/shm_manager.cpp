@@ -220,8 +220,27 @@ void ShmManager::shm_grow() {
 
 
 
-ShmManager::~ShmManager() {
+ShmManager::ShmManager(bool is_master, pid_t master_pid, int local_rank) : 
+        shm_ptr_{}, shm_meta_ptr_(nullptr), shm_meta_semaphore_(nullptr), is_master_(false), shutdown_called_(false),
+        local_session_id_(0), local_rank_(local_rank) {
+        local_session_id_ = master_pid;
+        if (is_master || master_pid == 0) {
+            is_master_ = true;
+            init_shared_memory_master();
+        } else {
+            is_master_ = false;
+            init_shared_memory_slave();
+        }
+    }
 
+ShmManager::~ShmManager() {
+    shutdown();
+}
+
+void ShmManager::shutdown() {
+    if (shutdown_called_) {
+        return;
+    }
     // free shared memory for data
 
     for (unsigned chunk_idx = 0; chunk_idx < MAX_SHM_CHUNKS; chunk_idx++) {
@@ -263,7 +282,7 @@ ShmManager::~ShmManager() {
         const auto sem_name = SEM_NAME_PREFIX + std::to_string(local_session_id_);
         sem_unlink(sem_name.c_str());
     }
-
+    shutdown_called_ = true;
 }
 
 

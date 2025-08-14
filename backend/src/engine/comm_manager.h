@@ -133,6 +133,7 @@ public:
 
     CommManager(const std::string addr, uint16_t port, FasterDpEngine *engine = nullptr);
     ~CommManager();
+    void shutdown();
 
     void startServer(int num_clients);
     void startClient(int client_id);

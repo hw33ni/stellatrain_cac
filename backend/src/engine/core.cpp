@@ -31,29 +31,30 @@ FasterDpEngine::~FasterDpEngine() {
     
     finished_ = true;
 
-    if (barrier_manager_thread_ != nullptr) {
+    // Wake up all threads by notifying every condition variable they might be waiting on.
+    backward_delegate_cond_.notify_all();
+    cpu_shmem_use_map_cond_.notify_all();
+    layer_model_completed_version_map_cond_.notify_all();
+    finished_cond_.notify_all();
+    if (shared_props_) {
         pthread_cond_broadcast(&shared_props_->barrier_ipc_cond_);
-        barrier_manager_thread_->join();
     }
 
-    if (chore_manager_thread_ != nullptr) {
-        finished_cond_.notify_all();
-        chore_manager_thread_->join();
+    // Now, join the threads. They will see 'finished_ = true' and exit their loops.
+    if (backward_delegate_thread_ != nullptr) {
+        backward_delegate_thread_->join();
     }
-
-    if (model_complete_manager_thread_ != nullptr) {
-        layer_model_completed_version_map_cond_.notify_all();
-        model_complete_manager_thread_->join();
-    }
-
     if (cpu_shmem_return_manager_thread_ != nullptr) {
-        cpu_shmem_use_map_cond_.notify_all();
         cpu_shmem_return_manager_thread_->join();
     }
-
-    if (backward_delegate_thread_ != nullptr) {
-        backward_delegate_cond_.notify_all();
-        backward_delegate_thread_->join();
+    if (model_complete_manager_thread_ != nullptr) {
+        model_complete_manager_thread_->join();
+    }
+    if (chore_manager_thread_ != nullptr) {
+        chore_manager_thread_->join();
+    }
+    if (barrier_manager_thread_ != nullptr) {
+        barrier_manager_thread_->join();
     }
 
 #if ENABLE_STAT

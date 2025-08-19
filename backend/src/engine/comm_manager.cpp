@@ -159,176 +159,190 @@ void CommManager::server_thread_main() {
     const auto num_clients = client_ids.size();
 
     while (!finished_) {
-        auto env = recv_req_envelope(sock_router_);
+        try {
+            auto env = recv_req_envelope(sock_router_);
+            if (!env.valid) {
+                // This can happen if the context is terminated
+                if (finished_) break;
+                continue;
+            }
 
-        /**
-         * | type | len | key | payload... |
-        */
+            /**
+             * | type | len | key | payload... |
+            */
 
-        if (static_cast<BrokerMsgType>(env.msg.data<char>()[0]) == BrokerMsgType::MODEL_REP) {
+            if (static_cast<BrokerMsgType>(env.msg.data<char>()[0]) == BrokerMsgType::MODEL_REP) {
 
-            bool from_master = false;
-            if (memcmp(master_identity.identity, env.identity.identity, sizeof(master_identity.identity)) == 0) {            
-                from_master = true;
-                std::string key(env.msg.data<char>() + 2, (int)(env.msg.data<char>()[1]));
+                bool from_master = false;
+                if (memcmp(master_identity.identity, env.identity.identity, sizeof(master_identity.identity)) == 0) {            
+                    from_master = true;
+                    std::string key(env.msg.data<char>() + 2, (int)(env.msg.data<char>()[1]));
 
-                std::cerr << "Received from master : key=" << std::string(env.msg.data<char>() + 2, (int)(env.msg.data<char>()[1])) << std::endl;
+                    std::cerr << "Received from master : key=" << std::string(env.msg.data<char>() + 2, (int)(env.msg.data<char>()[1])) << std::endl;
 
-                std::size_t remaining_clients = num_clients - 1;
+                    std::size_t remaining_clients = num_clients - 1;
 
-                // if previously got request, send to that request
-                if (init_model_pending_vec_map_.find(key) != init_model_pending_vec_map_.end()) {
-                    auto t = init_model_pending_vec_map_.find(key);
-                    for (auto it = t->second.begin(); it != t->second.end(); ++it) {
-                        assert(remaining_clients > 0);
-                        std::array<zmq::const_buffer, 3> send_msgs = {
-                            zmq::buffer(it->identity, sizeof(env.identity)),
-                            zmq::buffer(it->identity, 0),
-                            zmq::buffer(env.msg.data<char>(), env.msg.size()),
-                        };
-                        zmq::send_multipart(sock_router_, send_msgs);
-                        // std::cerr << "Immediately serving cached requests for " << key  << std::endl;
-                        remaining_clients--;
+                    // if previously got request, send to that request
+                    if (init_model_pending_vec_map_.find(key) != init_model_pending_vec_map_.end()) {
+                        auto t = init_model_pending_vec_map_.find(key);
+                        for (auto it = t->second.begin(); it != t->second.end(); ++it) {
+                            assert(remaining_clients > 0);
+                            std::array<zmq::const_buffer, 3> send_msgs = {
+                                zmq::buffer(it->identity, sizeof(env.identity)),
+                                zmq::buffer(it->identity, 0),
+                                zmq::buffer(env.msg.data<char>(), env.msg.size()),
+                            };
+                            zmq::send_multipart(sock_router_, send_msgs);
+                            // std::cerr << "Immediately serving cached requests for " << key  << std::endl;
+                            remaining_clients--;
+                        }
+                        init_model_pending_vec_map_.erase(key);
                     }
-                    init_model_pending_vec_map_.erase(key);
-                }
 
-                if (remaining_clients > 0) {
-                    // save to init_model_proxy_map_ and num_clients_waiting_for_model_map_
-                    assert(num_clients_waiting_for_model_map_.find(key) == num_clients_waiting_for_model_map_.end());
-                    num_clients_waiting_for_model_map_[key] = remaining_clients;
+                    if (remaining_clients > 0) {
+                        // save to init_model_proxy_map_ and num_clients_waiting_for_model_map_
+                        assert(num_clients_waiting_for_model_map_.find(key) == num_clients_waiting_for_model_map_.end());
+                        num_clients_waiting_for_model_map_[key] = remaining_clients;
 
-                    assert(init_model_proxy_map_.find(key) == init_model_proxy_map_.end());
-                    auto buf = std::make_unique<uint8_t []>(env.msg.size());
-                    memcpy(buf.get(), env.msg.data<uint8_t>(), env.msg.size());
+                        assert(init_model_proxy_map_.find(key) == init_model_proxy_map_.end());
+                        auto buf = std::make_unique<uint8_t []>(env.msg.size());
+                        memcpy(buf.get(), env.msg.data<uint8_t>(), env.msg.size());
 
-                    init_model_proxy_map_.insert(std::make_pair(key, std::make_pair(env.msg.size(), std::move(buf))));
-                    std::cerr << "Stashing data for " << key  << std::endl;
-                } else {
-                    if (num_clients_waiting_for_model_map_.find(key) != num_clients_waiting_for_model_map_.end()) {
-                        num_clients_waiting_for_model_map_.erase(key);
+                        init_model_proxy_map_.insert(std::make_pair(key, std::make_pair(env.msg.size(), std::move(buf))));
+                        std::cerr << "Stashing data for " << key  << std::endl;
+                    } else {
+                        if (num_clients_waiting_for_model_map_.find(key) != num_clients_waiting_for_model_map_.end()) {
+                            num_clients_waiting_for_model_map_.erase(key);
+                        }
                     }
-                }
 
-                // send dummy for sender
-
-                std::array<zmq::const_buffer, 3> send_msgs = {
-                    zmq::buffer(env.identity.identity, sizeof(env.identity)),
-                    zmq::buffer(env.identity.identity, 0),
-                    zmq::str_buffer("")
-                };
-                zmq::send_multipart(sock_router_, send_msgs);
-            } else {
-                // std::cerr << "Received from secondary" << std::endl;
-                std::string key(env.msg.data<char>() + 2, env.msg.size() - 2);
-                if (init_model_proxy_map_.find(key) == init_model_proxy_map_.end()) {
-                    
-                    // std::cerr << "Stashing request for " << key  << std::endl;
-                    init_model_pending_vec_map_[key].push_back(env.identity);
-                } else {
-                    // std::cerr << "Immediately serving request for " << key  << std::endl;
-                    auto &pair = init_model_proxy_map_[key];
+                    // send dummy for sender
 
                     std::array<zmq::const_buffer, 3> send_msgs = {
                         zmq::buffer(env.identity.identity, sizeof(env.identity)),
                         zmq::buffer(env.identity.identity, 0),
-                        zmq::buffer(pair.second.get(), pair.first),
+                        zmq::str_buffer("")
                     };
-
                     zmq::send_multipart(sock_router_, send_msgs);
-                    
-                    assert(num_clients_waiting_for_model_map_.find(key) != num_clients_waiting_for_model_map_.end());
-                    num_clients_waiting_for_model_map_[key]--;
-                    if (num_clients_waiting_for_model_map_[key] == 0) {
-                        num_clients_waiting_for_model_map_.erase(key);
-                        init_model_proxy_map_.erase(key);
-                        // std::cerr << "Removing cached elements for " << key  << std::endl;
+                } else {
+                    // std::cerr << "Received from secondary" << std::endl;
+                    std::string key(env.msg.data<char>() + 2, env.msg.size() - 2);
+                    if (init_model_proxy_map_.find(key) == init_model_proxy_map_.end()) {
+                        
+                        // std::cerr << "Stashing request for " << key  << std::endl;
+                        init_model_pending_vec_map_[key].push_back(env.identity);
+                    } else {
+                        // std::cerr << "Immediately serving request for " << key  << std::endl;
+                        auto &pair = init_model_proxy_map_[key];
+
+                        std::array<zmq::const_buffer, 3> send_msgs = {
+                            zmq::buffer(env.identity.identity, sizeof(env.identity)),
+                            zmq::buffer(env.identity.identity, 0),
+                            zmq::buffer(pair.second.get(), pair.first),
+                        };
+
+                        zmq::send_multipart(sock_router_, send_msgs);
+                        
+                        assert(num_clients_waiting_for_model_map_.find(key) != num_clients_waiting_for_model_map_.end());
+                        num_clients_waiting_for_model_map_[key]--;
+                        if (num_clients_waiting_for_model_map_[key] == 0) {
+                            num_clients_waiting_for_model_map_.erase(key);
+                            init_model_proxy_map_.erase(key);
+                            // std::cerr << "Removing cached elements for " << key  << std::endl;
+                        }
+
+                        // std::cerr << "Sent to secondary" << std::endl;
                     }
-
-                    // std::cerr << "Sent to secondary" << std::endl;
                 }
-            }
 
-        } else if (static_cast<BrokerMsgType>(env.msg.data<char>()[0]) == BrokerMsgType::STAT_REP) {
-            auto *msg = reinterpret_cast<MsgStatReport *>(env.msg.data<char>() + 1);
+            } else if (static_cast<BrokerMsgType>(env.msg.data<char>()[0]) == BrokerMsgType::STAT_REP) {
+                auto *msg = reinterpret_cast<MsgStatReport *>(env.msg.data<char>() + 1);
 
-            int32_t client_id = -1;
-            for (auto it = client_zmq_id_map_.begin(); it != client_zmq_id_map_.end(); ++it) {
-                if (memcmp(it->second.identity, env.identity.identity, sizeof(it->second.identity)) == 0) {
-                    client_id = it->first;
-                    break;
+                int32_t client_id = -1;
+                for (auto it = client_zmq_id_map_.begin(); it != client_zmq_id_map_.end(); ++it) {
+                    if (memcmp(it->second.identity, env.identity.identity, sizeof(it->second.identity)) == 0) {
+                        client_id = it->first;
+                        break;
+                    }
                 }
-            }
-            assert(client_id >= 0);
-            int32_t sender_id = receier_id_to_sender_id_map_[client_id];
+                assert(client_id >= 0);
+                int32_t sender_id = receier_id_to_sender_id_map_[client_id];
 
-            // if (memcmp(master_identity.identity, env.identity.identity, sizeof(master_identity.identity)) == 0) { 
-            auto start = msg->sender_timestamp - client_zmq_id_map_[sender_id].timestamp_offset;
-            auto end = msg->receiver_timestamp - client_zmq_id_map_[client_id].timestamp_offset;
-            auto duration_ms = (double)(end-start) * 1e-6;
-            auto thpt_mbps = (double)msg->payload_size * 8 / duration_ms / 1000.;
-            
-            
-            std::cerr << "Received stat report from " << sender_id << " -> " << client_id 
-                // << ", ts=" << msg->sender_timestamp << " -> " << msg->receiver_timestamp 
-                << ", ts_diff_ms=" << duration_ms << ", bytes = " << msg->payload_size << ", thpt_mbps=" << thpt_mbps << std::endl;
-            
-            msg->receiver_timestamp = get_timestamp();
-            msg->payload_size = env.msg.size();
+                // if (memcmp(master_identity.identity, env.identity.identity, sizeof(master_identity.identity)) == 0) { 
+                auto start = msg->sender_timestamp - client_zmq_id_map_[sender_id].timestamp_offset;
+                auto end = msg->receiver_timestamp - client_zmq_id_map_[client_id].timestamp_offset;
+                auto duration_ms = (double)(end-start) * 1e-6;
+                auto thpt_mbps = (double)msg->payload_size * 8 / duration_ms / 1000.;
+                
+                
+                std::cerr << "Received stat report from " << sender_id << " -> " << client_id 
+                    // << ", ts=" << msg->sender_timestamp << " -> " << msg->receiver_timestamp 
+                    << ", ts_diff_ms=" << duration_ms << ", bytes = " << msg->payload_size << ", thpt_mbps=" << thpt_mbps << std::endl;
+                
+                msg->receiver_timestamp = get_timestamp();
+                msg->payload_size = env.msg.size();
 
-            std::array<zmq::const_buffer, 3> send_msgs = {
-                zmq::buffer(env.identity.identity, sizeof(env.identity)),
-                zmq::buffer(env.identity.identity, 0),
-                zmq::str_buffer(""),
-            };
-            zmq::send_multipart(sock_router_, send_msgs);
-            
-        } else if (static_cast<BrokerMsgType>(env.msg.data<char>()[0]) == BrokerMsgType::SYNC_TIME) {
-            auto *msg = reinterpret_cast<MsgSyncTime *>(env.msg.data<char>() + 1);
-            int64_t timestamp_recv = get_timestamp();
-            int64_t timestamp_offset = msg->timestamp - timestamp_recv;
+                std::array<zmq::const_buffer, 3> send_msgs = {
+                    zmq::buffer(env.identity.identity, sizeof(env.identity)),
+                    zmq::buffer(env.identity.identity, 0),
+                    zmq::str_buffer(""),
+                };
+                zmq::send_multipart(sock_router_, send_msgs);
+                
+            } else if (static_cast<BrokerMsgType>(env.msg.data<char>()[0]) == BrokerMsgType::SYNC_TIME) {
+                auto *msg = reinterpret_cast<MsgSyncTime *>(env.msg.data<char>() + 1);
+                int64_t timestamp_recv = get_timestamp();
+                int64_t timestamp_offset = msg->timestamp - timestamp_recv;
 
-            int32_t client_id = -1;
-            for (auto it = client_zmq_id_map_.begin(); it != client_zmq_id_map_.end(); ++it) {
-                if (memcmp(it->second.identity, env.identity.identity, sizeof(it->second.identity)) == 0) {
-                    client_id = it->first;
-                    break;
+                int32_t client_id = -1;
+                for (auto it = client_zmq_id_map_.begin(); it != client_zmq_id_map_.end(); ++it) {
+                    if (memcmp(it->second.identity, env.identity.identity, sizeof(it->second.identity)) == 0) {
+                        client_id = it->first;
+                        break;
+                    }
                 }
+                assert(client_id >= 0);
+
+                auto prev_offset = client_zmq_id_map_[client_id].timestamp_offset;
+                auto new_offset = (prev_offset * 0.9 + timestamp_offset * 0.1);
+                auto offset_diff = new_offset - prev_offset;
+                client_zmq_id_map_[client_id].timestamp_offset = new_offset;
+                std::cerr << "Received sync time from " << client_id << ", offset = " << ((new_offset - prev_offset) / 1000) << " us" << std::endl;
+                
+                std::array<zmq::const_buffer, 3> send_msgs = {
+                    zmq::buffer(env.identity.identity, sizeof(env.identity)),
+                    zmq::buffer(env.identity.identity, 0),
+                    zmq::str_buffer(""),
+                };
+                zmq::send_multipart(sock_router_, send_msgs);
+            } else if (static_cast<BrokerMsgType>(env.msg.data<char>()[0]) == BrokerMsgType::CONFIG_UPD) {
+                auto *msg = reinterpret_cast<MsgConfigUpdateReport *>(env.msg.data<char>() + 1);
+                int32_t client_id = find_client_id_by_zmqid(env.identity);
+                
+                // std::cerr << "Received bw update from " << client_id << ", bandwidth = " << msg->bandwidth << " Mbps" << std::endl;
+
+                char res_buf[sizeof(MsgConfigUpdateResponse)+1] = {0, };
+                auto *res = reinterpret_cast<MsgConfigUpdateResponse *>(res_buf + 1);
+                
+                // need to set something here..
+                
+                std::array<zmq::const_buffer, 3> send_msgs = {
+                    zmq::buffer(env.identity.identity, sizeof(env.identity)),
+                    zmq::buffer(env.identity.identity, 0),
+                    zmq::buffer(res_buf, sizeof(MsgConfigUpdateResponse) + 1),
+                };
+                zmq::send_multipart(sock_router_, send_msgs);
+
+            } else if (static_cast<BrokerMsgType>(env.msg.data<char>()[0]) == BrokerMsgType::LOSS_PROBE) {
+
             }
-            assert(client_id >= 0);
-
-            auto prev_offset = client_zmq_id_map_[client_id].timestamp_offset;
-            auto new_offset = (prev_offset * 0.9 + timestamp_offset * 0.1);
-            auto offset_diff = new_offset - prev_offset;
-            client_zmq_id_map_[client_id].timestamp_offset = new_offset;
-            std::cerr << "Received sync time from " << client_id << ", offset = " << ((new_offset - prev_offset) / 1000) << " us" << std::endl;
-            
-            std::array<zmq::const_buffer, 3> send_msgs = {
-                zmq::buffer(env.identity.identity, sizeof(env.identity)),
-                zmq::buffer(env.identity.identity, 0),
-                zmq::str_buffer(""),
-            };
-            zmq::send_multipart(sock_router_, send_msgs);
-        } else if (static_cast<BrokerMsgType>(env.msg.data<char>()[0]) == BrokerMsgType::CONFIG_UPD) {
-            auto *msg = reinterpret_cast<MsgConfigUpdateReport *>(env.msg.data<char>() + 1);
-            int32_t client_id = find_client_id_by_zmqid(env.identity);
-            
-            // std::cerr << "Received bw update from " << client_id << ", bandwidth = " << msg->bandwidth << " Mbps" << std::endl;
-
-            char res_buf[sizeof(MsgConfigUpdateResponse)+1] = {0, };
-            auto *res = reinterpret_cast<MsgConfigUpdateResponse *>(res_buf + 1);
-            
-            // need to set something here..
-            
-            std::array<zmq::const_buffer, 3> send_msgs = {
-                zmq::buffer(env.identity.identity, sizeof(env.identity)),
-                zmq::buffer(env.identity.identity, 0),
-                zmq::buffer(res_buf, sizeof(MsgConfigUpdateResponse) + 1),
-            };
-            zmq::send_multipart(sock_router_, send_msgs);
-
-        } else if (static_cast<BrokerMsgType>(env.msg.data<char>()[0]) == BrokerMsgType::LOSS_PROBE) {
-
+        } catch (const zmq::error_t& e) {
+            if (e.num() == ETERM) {
+                std::cout << "ZMQ context terminated, server thread exiting." << std::endl;
+                break;
+            }
+            // Re-throw other errors
+            throw;
         }
     }
 
@@ -347,22 +361,34 @@ uint16_t CommManager::find_client_id_by_zmqid(const zmqid_t &zmqid) const {
 
 
 CommManager::~CommManager() {
+    shutdown();
+}
+
+void CommManager::shutdown() {
+    if (finished_) {
+        return;
+    }
     finished_ = true;
+
+    // Wake up all threads
+    wait_client_connect_cond_.notify_all();
+    tx_queue_cond_.notify_all();
+
+    // Shutdown the ZMQ context, which will unblock any blocking calls
     zmq_ctx_.shutdown();
 
-    sock_push_.close();
-    sock_pull_.close();
-
-    if (server_thread_) {
+    // Join all threads
+    if (server_thread_ && server_thread_->joinable()) {
         server_thread_->join();
     }
-    if (pull_thread_) {
+    if (pull_thread_ && pull_thread_->joinable()) {
         pull_thread_->join();
     }
-    if (push_thread_) {
-        tx_queue_cond_.notify_one();
+    if (push_thread_ && push_thread_->joinable()) {
         push_thread_->join();
     }
+
+    // Sockets are implicitly closed by context termination
 }
 
 

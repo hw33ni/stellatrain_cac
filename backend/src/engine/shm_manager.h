@@ -45,6 +45,7 @@ private:
     uint8_t *shm_meta_ptr_;
     sem_t* shm_meta_semaphore_;
     bool is_master_;
+    bool shutdown_called_;
     pid_t local_session_id_;
     int local_rank_;
 
@@ -55,20 +56,10 @@ private:
     void unlock();
 
 public:
-    ShmManager(bool is_master = true, pid_t master_pid = 0, int local_rank = 0) : 
-        shm_ptr_{}, shm_meta_ptr_(nullptr), shm_meta_semaphore_(nullptr), is_master_(false), 
-        local_session_id_(0), local_rank_(local_rank) {
-        local_session_id_ = master_pid;
-        if (is_master || master_pid == 0) {
-            is_master_ = true;
-            init_shared_memory_master();
-        } else {
-            is_master_ = false;
-            init_shared_memory_slave();
-        }
-    }
+    ShmManager(bool is_master = true, pid_t master_pid = 0, int local_rank = 0);
 
     ~ShmManager();
+    void shutdown();
 
     inline MemoryPoolMetaHeader * meta_header() const { return reinterpret_cast<MemoryPoolMetaHeader *>(shm_meta_ptr_); }
     

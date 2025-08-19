@@ -80,6 +80,7 @@ private:
 
     bool ready_;
     bool finished_;
+    bool shutdown_called_;
     bool master_;
     bool node_master_;
     int local_session_id_;
@@ -185,6 +186,7 @@ public:
     FasterDpEngine(FasterDpEngine const&) = delete;
     void operator=(FasterDpEngine const&) = delete;
     ~FasterDpEngine ();
+    void shutdown();
     
     static FasterDpEngine& getInstance() {
         static FasterDpEngine instance;

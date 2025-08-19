@@ -21,44 +21,75 @@
 #include "../optim/sgd.h"
 #include "../optim/adam.h"
 
-FasterDpEngine::FasterDpEngine() : finished_(false), model_staleness_(1), compression_ratio_(0.99), first_backward_(true), gradient_accumulation_(1) {
+FasterDpEngine::FasterDpEngine() : finished_(false), model_staleness_(1), compression_ratio_(0.99), first_backward_(true), gradient_accumulation_(1), shutdown_called_(false) {
     std::cout << "Starting FasterDPEngine" << std::endl;
     configure_compression("thresholdv16");
 }
 
 FasterDpEngine::~FasterDpEngine() {
+    if (!shutdown_called_) {
+        shutdown();
+    }
+}
+
+void FasterDpEngine::shutdown() {
     std::cout << "Terminating FasterDPEngine" << std::endl;
     
+    if (shutdown_called_) {
+        return;
+    }
+
     finished_ = true;
 
-    if (barrier_manager_thread_ != nullptr) {
+    // 1. Wake up all FasterDpEngine threads so they can check the finished_ flag and exit.
+    backward_delegate_cond_.notify_all();
+    cpu_shmem_use_map_cond_.notify_all();
+    layer_model_completed_version_map_cond_.notify_all();
+    finished_cond_.notify_all();
+    if (shared_props_) {
         pthread_cond_broadcast(&shared_props_->barrier_ipc_cond_);
+    }
+
+    // 2. Gracefully shut down the managers, which will stop and join their own internal threads.
+    if (comm_manager_) {
+        comm_manager_->shutdown();
+    }
+    if (shm_manager_) {
+        shm_manager_->shutdown();
+    }
+
+    // 3. Now that the managers' threads are stopped, join the FasterDpEngine threads.
+    if (backward_delegate_thread_ && backward_delegate_thread_->joinable()) {
+        backward_delegate_thread_->join();
+    }
+    if (cpu_shmem_return_manager_thread_ && cpu_shmem_return_manager_thread_->joinable()) {
+        cpu_shmem_return_manager_thread_->join();
+    }
+    if (model_complete_manager_thread_ && model_complete_manager_thread_->joinable()) {
+        model_complete_manager_thread_->join();
+    }
+    if (chore_manager_thread_ && chore_manager_thread_->joinable()) {
+        chore_manager_thread_->join();
+    }
+    if (barrier_manager_thread_ && barrier_manager_thread_->joinable()) {
         barrier_manager_thread_->join();
     }
 
-    if (chore_manager_thread_ != nullptr) {
-        finished_cond_.notify_all();
-        chore_manager_thread_->join();
-    }
-
-    if (model_complete_manager_thread_ != nullptr) {
-        layer_model_completed_version_map_cond_.notify_all();
-        model_complete_manager_thread_->join();
-    }
-
-    if (cpu_shmem_return_manager_thread_ != nullptr) {
-        cpu_shmem_use_map_cond_.notify_all();
-        cpu_shmem_return_manager_thread_->join();
-    }
-
-    if (backward_delegate_thread_ != nullptr) {
-        backward_delegate_cond_.notify_all();
-        backward_delegate_thread_->join();
-    }
+    // 4. Clear all tensor maps to release CUDA memory.
+    map_cpu_param_tensor_.clear();
+    map_gpu_param_tensor_.clear();
+    map_gpu_grad_tensor_.clear();
+    
+    // 5. Explicitly destroy the manager objects themselves.
+    compressor_.reset();
+    comm_manager_.reset();
+    shm_manager_.reset();
+    thread_pool_.reset();
 
 #if ENABLE_STAT
     stat_export();
 #endif
+    shutdown_called_ = true;
 }
 
 

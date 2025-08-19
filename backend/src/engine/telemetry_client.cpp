@@ -23,7 +23,7 @@ TelemetryClient::TelemetryClient(const std::string uri, size_t gpu_id, const std
 
     // blocking wait
     zmq::message_t recv_msg;
-    sock_.recv(recv_msg);
+    (void)sock_.recv(recv_msg);
 
     instruction_handler_thread_ = std::make_unique<std::thread>(&TelemetryClient::comm_handler_main, this);
 }

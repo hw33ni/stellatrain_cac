@@ -77,6 +77,10 @@ PYBIND11_MODULE(fasterdp, m) {
         FasterDpEngine::getInstance().synchronize_backend();
     });
 
+    m.def("shutdown", []() {
+        FasterDpEngine::getInstance().shutdown();
+    });
+
     m.def("compress", [](std::string &name, torch::Tensor tensor, float ratio) {
         return FasterDpEngine::getInstance().compress(name, tensor, ratio);
     });

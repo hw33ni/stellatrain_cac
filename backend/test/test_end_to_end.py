@@ -83,6 +83,7 @@ def test_end_to_end(local_rank: int, local_master_pid: int, local_world_size: in
         model.step()
 
     fasterdp.synchronize()
+    fasterdp.shutdown()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
